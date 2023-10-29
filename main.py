@@ -22,7 +22,7 @@ label_color_dict = {'0': "red", '1': "blue", '2': "green", '3': "yellow", '4': "
                     '5': "orange", '6': "pink", '7': "brown", '8': "gray",
                     '9': "olive", '10': "cyan", '11': "magenta", '12': "lime", '13': "teal", '14': "navy"}
 
-def t_sne(latent_vecs, dim_labels, args):
+def dim_reduction(latent_vecs, dim_labels, args):
     latent_vecs = latent_vecs.to("cpu")
     latent_vecs = latent_vecs.numpy()
     dim_labels = dim_labels.numpy()
@@ -89,7 +89,7 @@ def main(args):
     
     with torch.no_grad():
         _, output = model(dim_imgs.to(device))
-        t_sne(output, dim_labels, args)
+        dim_reduction(output, dim_labels, args)
 
 
 if __name__ == '__main__':
