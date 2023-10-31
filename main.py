@@ -1,7 +1,7 @@
-import os
 import torch
 import utils
 import argparse
+import numpy as np
 import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 
@@ -24,6 +24,7 @@ label_color_dict = {'0': "red", '1': "blue", '2': "green", '3': "yellow", '4': "
 
 def dim_reduction(latent_vecs, dim_labels, args):
     latent_vecs = latent_vecs.to("cpu")
+    dim_labels = dim_labels.to("cpu")
     latent_vecs = latent_vecs.numpy()
     dim_labels = dim_labels.numpy()
     
@@ -40,7 +41,7 @@ def dim_reduction(latent_vecs, dim_labels, args):
         plt.scatter(latent_vecs_reduced[dim_labels == i, 0], latent_vecs_reduced[dim_labels == i, 1], label=label_name_dict[str(i)], color=label_color_dict[str(i)], s=5)
         
     plt.legend(loc='lower center', bbox_to_anchor=(0.5, 1),ncol=5, prop={'size': 7})
-    plt.savefig(f'results/Tiny-ImageNet-C-{args.red_type}.png') 
+    plt.savefig(f'Results/{args.data_name}-{args.red_type}.png') 
     plt.show()
 
 def main(args):
@@ -52,18 +53,13 @@ def main(args):
             [
              transforms.ToTensor(),
              transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+             transforms.CenterCrop(size=(1024, 1024)),
              ])
     }
     
     # データ準備
     test_dataset = ImageFolder(root=testdata_path, transform=transform_dict['test'])
-    test_loader_red = DataLoader(dataset=test_dataset, batch_size=5000, shuffle=True, num_workers=2, drop_last=False)
-    test_loader_eval = DataLoader(dataset=test_dataset, batch_size=128, shuffle=False, num_workers=2, drop_last=False)
-    
-    
-    # 5000枚の画像を取得
-    for dim_imgs, dim_labels in test_loader_red:
-        break
+    test_loader_eval = DataLoader(dataset=test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, drop_last=False)
 
     # model
     net = utils.get_resnet_model(resnet_type=152, pretrained=False)
@@ -72,32 +68,67 @@ def main(args):
     model.load_state_dict(torch.load(args.model))
 
     # モデルの評価
-    model.eval()
-    with torch.no_grad():
-        total = 0
-        correct = 0
-        for imgs, labels in tqdm(test_loader_eval, desc=f"Test", unit="batch"):
-            imgs = imgs.to(device)
-            labels = labels.to(device)
-            _, outputs = model(imgs)
-            _, predicted = torch.max(outputs, dim=1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-    accuracy = 100 * correct / total
-    print(f"Accuracy: {accuracy}%")
+    if args.eval:
+        model.eval()
+        with torch.no_grad():
+            total = 0
+            correct = 0
+            for imgs, labels in tqdm(test_loader_eval, desc=f"Test", unit="batch"):
+                imgs = imgs.to(device)
+                labels = labels.to(device)
+                _, outputs = model(imgs)
+                _, predicted = torch.max(outputs, dim=1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+        accuracy = 100 * correct / total
+        print(f"Accuracy: {accuracy}%")
     
-    
-    with torch.no_grad():
-        _, output = model(dim_imgs.to(device))
-        dim_reduction(output, dim_labels, args)
+    if args.data_name == "Tiny-ImageNet-C5":
+        model.eval()
+        with torch.no_grad():
+            feature = []
+            dim_labels = []
+            for imgs, labels in tqdm(test_loader_eval, desc=f"DimReduction", unit="batch"):
+                imgs = imgs.to(device)
+                labels = labels.to(device)
+                _, outputs = model(imgs)
+                feature.append(outputs)
+                dim_labels.append(labels)
+            feature = torch.cat(feature, dim=0)
+            dim_labels = torch.cat(dim_labels, dim=0)
+            dim_reduction(feature, dim_labels, args)
+    else:
+        model.eval()
+        with torch.no_grad():
+            feature = []
+            predicted_labels = []
+            for imgs, _ in tqdm(test_loader_eval, desc=f"DimReduction", unit="batch"):
+                imgs = imgs.to(device)
+                _, outputs = model(imgs)
+                if args.batch_size != 1:
+                    _, predicted = torch.max(outputs, dim=1)
+                else:
+                    _, predicted = torch.max(outputs, dim=0)
+                feature.append(outputs)
+                predicted_labels.append(predicted)
+                
+            if args.batch_size != 1:
+                feature = torch.cat(feature, dim=0)
+                predicted_labels = torch.cat(predicted_labels, dim=0)
+            else:
+                feature = torch.stack(feature)
+                predicted_labels = torch.cat([tensor.view(-1) for tensor in predicted_labels])
+            dim_reduction(feature, predicted_labels, args)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--test_dataset', type=str, default='/home/ru/ドキュメント/study/DegradationClassification/Tiny-ImageNet-C5-ImageFolder/Test')  
+    parser.add_argument('--test_dataset', type=str)  
     parser.add_argument('--model', type=str, default='/home/ru/ドキュメント/study/DegradationClassification/results/ex4/ex4_17.pt')   
     parser.add_argument('--red_type', type=str, default="tsne")
-    
+    parser.add_argument('--eval', type=bool, default=False)
+    parser.add_argument('--data_name', type=str)
+    parser.add_argument('--batch_size', type=int, default=128)
     args = parser.parse_args()
     
     pl.seed_everything(0)
