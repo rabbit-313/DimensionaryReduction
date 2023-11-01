@@ -41,7 +41,11 @@ def dim_reduction(latent_vecs, dim_labels, args):
         plt.scatter(latent_vecs_reduced[dim_labels == i, 0], latent_vecs_reduced[dim_labels == i, 1], label=label_name_dict[str(i)], color=label_color_dict[str(i)], s=5)
         
     plt.legend(loc='lower center', bbox_to_anchor=(0.5, 1),ncol=5, prop={'size': 7})
-    plt.savefig(f'Results/{args.data_name}-{args.red_type}.png') 
+    
+    if args.feature:
+        plt.savefig(f'Results/BeforeLiner/{args.data_name}-{args.red_type}.png') 
+    else:
+        plt.savefig(f'Results/AfterLiner/{args.data_name}-{args.red_type}.png')
     plt.show()
 
 def main(args):
@@ -53,7 +57,7 @@ def main(args):
             [
              transforms.ToTensor(),
              transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-             transforms.CenterCrop(size=(1024, 1024)),
+            #  transforms.CenterCrop(size=(64, 64)),
              ])
     }
     
@@ -91,7 +95,10 @@ def main(args):
             for imgs, labels in tqdm(test_loader_eval, desc=f"DimReduction", unit="batch"):
                 imgs = imgs.to(device)
                 labels = labels.to(device)
-                _, outputs = model(imgs)
+                if args.feature:
+                    outputs, _ = model(imgs)
+                else:
+                    _, outputs = model(imgs)
                 feature.append(outputs)
                 dim_labels.append(labels)
             feature = torch.cat(feature, dim=0)
@@ -105,11 +112,16 @@ def main(args):
             for imgs, _ in tqdm(test_loader_eval, desc=f"DimReduction", unit="batch"):
                 imgs = imgs.to(device)
                 _, outputs = model(imgs)
+                if args.feature:
+                    feature_outputs, _ = model(imgs)
+                    feature.append(feature_outputs)
+                else:
+                    feature.append(outputs)
+                    
                 if args.batch_size != 1:
                     _, predicted = torch.max(outputs, dim=1)
                 else:
                     _, predicted = torch.max(outputs, dim=0)
-                feature.append(outputs)
                 predicted_labels.append(predicted)
                 
             if args.batch_size != 1:
@@ -129,7 +141,10 @@ if __name__ == '__main__':
     parser.add_argument('--eval', type=bool, default=False)
     parser.add_argument('--data_name', type=str)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--feature', type=bool, default=False)
     args = parser.parse_args()
+    
+    print(args)
     
     pl.seed_everything(0)
     main(args)
